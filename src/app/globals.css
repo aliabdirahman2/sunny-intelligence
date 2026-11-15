@@ -1,18 +1,37 @@
 @import "tailwindcss";
 
 :root {
-  --bg-warm: #f7f5f0;
+  --bg-warm: #f8f7f3;
   --bg-card: #ffffff;
-  --text-primary: #1f2421;
-  --text-muted: #5a625d;
-  --accent-green: #3d6b52;
+  --sunny-charcoal: #161716;
+  --sunny-yellow: #f6d54a;
+  --sunny-mint: #3eb489;
+  --text-primary: #1c1e1d;
+  --text-muted: #5c635f;
+  --accent-green: #2e6b4e;
   --accent-blue: #3b6491;
-  --accent-amber: #b87b20;
-  --border-subtle: #e6e2d8;
+  --border-subtle: #e7e3da;
 }
 
 body {
   background-color: var(--bg-warm);
   color: var(--text-primary);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.font-editorial {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+}
+
+.sunny-frame-gradient {
+  background: linear-gradient(125deg, #f6d54a 0%, #c6e48b 50%, #44c48c 100%);
+}
+
+.sunny-guide-gradient {
+  background: linear-gradient(145deg, #f3d4f4 0%, #d8d9fa 48%, #b9dbff 100%);
+}
+
+.sunny-orb {
+  background: radial-gradient(circle at 30% 30%, #c4b5fd 0%, #7c6ee6 55%, #5b50c6 100%);
 }

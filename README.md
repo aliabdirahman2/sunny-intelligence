@@ -98,3 +98,4 @@ This project is pre-configured for zero-config deployment to **Vercel** even tho
 ## 5. Companion Technical Documents
 - [ONTOLOGY.md](./ONTOLOGY.md) — Semantic entity definitions, properties, typed relationships, and event provenance.
 - [BENCHMARK_METHODOLOGY.md](./BENCHMARK_METHODOLOGY.md) — Five-vital normalization, missing-data rules, privacy thresholds (`n >= 5`), three benchmark tiers, confidence indicators, and validation roadmap.
+

@@ -330,3 +330,4 @@ export default async function TeamDetailPage(props: { params: Promise<{ id: stri
     </div>
   );
 }
+

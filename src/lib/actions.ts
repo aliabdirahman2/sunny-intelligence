@@ -211,3 +211,29 @@ export async function updateSharingPermissionAction(params: {
   });
   revalidatePath("/", "layout");
 }
+
+export async function submitEnergyCheckInAction(params: {
+  energyBand: string;
+  reportedEnergy: number;
+  reportedSupport: number;
+  reason: string;
+  mood: string;
+  shareWithManager: boolean;
+}) {
+  const ctx = await getDemoContext();
+  await prisma.energyCheckIn.create({
+    data: {
+      id: `ci-${ctx.viewer.id}-${Date.now()}`,
+      employeeId: ctx.viewer.id,
+      projectId: ctx.viewer.teamId === "t-outreach" ? "p-food-access" : null,
+      timestamp: ctx.currentDate,
+      reportedEnergy: params.reportedEnergy,
+      reportedSupport: params.reportedSupport,
+      optionalContext: `[${params.energyBand} · Mood: ${params.mood}] ${params.reason}`,
+      source: "slack_prompt",
+      visibility: params.shareWithManager ? "SHARED_WITH_MANAGER" : "PRIVATE",
+    },
+  });
+  revalidatePath("/", "layout");
+}
+

@@ -86,3 +86,4 @@ export function parsePrivacySettings(raw: string): PrivacySettings {
 export function parseSharingPermissions(raw: string): SharingPermissions {
   return parseJSON<SharingPermissions>(raw, { manager: [], team: [] });
 }
+

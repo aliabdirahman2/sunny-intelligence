@@ -58,3 +58,4 @@ Given a question (e.g., *"Why has the Community Outreach Team's support score de
 4. Traverses `HAS_EVENT` and `RELATES_TO` to collect coinciding `OrganizationalEvent` and `WorkplaceObservation` nodes in Weeks 6–12.
 5. Matches the observed signals (`RESPONSIBILITIES_ADDED`, `DEADLINE_CHANGED`, `PULSE_THEME_CLARITY`) against the `Intervention` library to recommend `Clarify Responsibilities` (`i-clarify`).
 6. Returns the exact `reasoningPathNodeIds` so the UI can highlight the traversed subgraph in React Flow.
+

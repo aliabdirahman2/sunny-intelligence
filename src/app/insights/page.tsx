@@ -22,3 +22,4 @@ export default async function InsightsPage(props: {
 
   return <InsightsWorkbench initialResult={initialResult} teams={teams} initialTeamId={teamId} />;
 }
+

@@ -537,3 +537,4 @@ export async function buildOntologyGraph(opts: {
 
   return { nodes, edges };
 }
+

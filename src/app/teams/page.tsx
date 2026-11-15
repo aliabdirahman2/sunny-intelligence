@@ -110,3 +110,4 @@ export default async function TeamsIndexPage() {
     </div>
   );
 }
+
