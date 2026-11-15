@@ -46,13 +46,13 @@ const ONTOLOGY_TOOL_DECLARATIONS = [
   {
     name: "get_employee_shared_preferences",
     description:
-      "Check an employee's EnergyProfile working/collaboration/communication preferences, strictly enforcing RBAC sharing permissions for the current viewer.",
+      "Look up an employee by name or ID and retrieve their EnergyProfile working, collaboration, and communication preferences (plus any check-ins they explicitly shared), strictly enforcing RBAC sharing permissions for the current viewer. Use this whenever asked how to approach talking to or collaborating with a specific person.",
     parameters: {
       type: "object",
       properties: {
-        employeeId: { type: "string", description: "Employee ID, e.g. e-jordan-ellis" },
+        nameOrId: { type: "string", description: "Employee full/partial name (e.g. 'Jordan Ellis', 'Marcus') or ID (e.g. 'e-jordan-ellis')" },
       },
-      required: ["employeeId"],
+      required: ["nameOrId"],
     },
   },
 ];
@@ -202,30 +202,43 @@ async function executeOntologyTool(
   }
 
   if (name === "get_employee_shared_preferences") {
-    const employeeId = String(args.employeeId || "e-jordan-ellis");
-    const emp = await prisma.employee.findUnique({
-      where: { id: employeeId },
-      include: { profiles: { where: { isCurrent: true } } },
+    const query = String(args.nameOrId || args.employeeId || "e-jordan-ellis").trim();
+    const allEmps = await prisma.employee.findMany({
+      include: { team: true, profiles: { where: { isCurrent: true } }, checkIns: { orderBy: { timestamp: "desc" }, take: 5 } },
     });
+    const emp =
+      allEmps.find((e) => e.id === query) ||
+      allEmps.find((e) => e.name.toLowerCase() === query.toLowerCase()) ||
+      allEmps.find((e) => e.name.toLowerCase().includes(query.toLowerCase()));
+
     if (!emp || !emp.profiles[0]) {
-      return { result: { error: "Employee or profile not found" }, nodeIds: [], relationshipLog: [], summary: "Employee not found" };
+      return { result: { error: `Employee matching "${query}" not found` }, nodeIds: [], relationshipLog: [], summary: `Employee "${query}" not found` };
     }
     const prof = emp.profiles[0];
     const sharing = parseSharingPermissions(prof.sharingPermissions);
     const work = canViewEnergyProfileSection(ctx.viewer, emp, sharing, "working");
+    const collab = canViewEnergyProfileSection(ctx.viewer, emp, sharing, "collaboration");
     const comm = canViewEnergyProfileSection(ctx.viewer, emp, sharing, "communication");
+    const sharedCheckIns = emp.checkIns
+      .filter((ci) => canViewCheckIn(ctx.viewer, ci, emp.managerId))
+      .map((ci) => ({ date: fmtDate(ci.timestamp), context: ci.optionalContext, visibility: ci.visibility }));
+
     return {
       result: {
         employee: emp.name,
         role: emp.role,
+        team: emp.team.name,
         workingPreferences: work.allowed ? parseJSON<string[]>(prof.workingPreferences, []) : `RESTRICTED: ${work.reason}`,
+        collaborationPreferences: collab.allowed ? parseJSON<string[]>(prof.collaborationPreferences, []) : `RESTRICTED: ${collab.reason}`,
         communicationPreferences: comm.allowed ? parseJSON<string[]>(prof.communicationPreferences, []) : `RESTRICTED: ${comm.reason}`,
+        sharedCheckInNotes: sharedCheckIns,
+        note: "Working preferences are voluntarily shared to support better collaboration — never to evaluate or rank performance.",
       },
-      nodeIds: work.allowed || comm.allowed ? [emp.id, prof.id] : [emp.id],
+      nodeIds: work.allowed || comm.allowed ? [emp.id, prof.id, emp.teamId] : [emp.id, emp.teamId],
       relationshipLog: [
         { from: `Employee (${emp.name})`, relationship: "HAS_PROFILE", to: "EnergyProfile (RBAC-checked)", meaning: work.allowed ? work.reason : "Access restricted by employee settings" },
       ],
-      summary: `Checked RBAC permissions for ${emp.name}'s EnergyProfile`,
+      summary: `Checked RBAC permissions for ${emp.name}'s EnergyProfile (${work.allowed ? "shared" : "restricted"})`,
     };
   }
 

@@ -24,7 +24,7 @@ const EXAMPLE_QUESTIONS = [
   "What intervention would be appropriate?",
   "What happened after the last intervention?",
   "Which teams could benefit from more clarity or support?",
-  "How can I prepare for a 1:1 with Jordan Ellis using shared preferences?",
+  "How should I approach talking to Jordan Ellis based on their Energy Profile?",
 ];
 
 export function InsightsWorkbench(props: {
