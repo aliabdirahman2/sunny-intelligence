@@ -126,13 +126,30 @@ export function InsightsWorkbench(props: {
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-[#3d6b52]" />
                 <span className="text-xs font-semibold uppercase tracking-wider text-[#3d6b52]">
-                  Ontology Reasoning Result · {result.intent}
+                  {result.mode === "gemini"
+                    ? "Live Gemini + Ontology Tools"
+                    : `Deterministic Ontology Engine · ${result.intent}`}
                 </span>
               </div>
               <span className="rounded bg-[#f4f1ea] px-2 py-0.5 text-[11px] text-[#5a625d]">
                 Window: {result.timePeriod}
               </span>
             </div>
+
+            {result.toolTrace && result.toolTrace.length > 0 && (
+              <div className="mt-3 rounded-xl border border-[#e7e3da] bg-[#faf8f3] p-3 text-[11px]">
+                <div className="font-semibold text-[#1f2421]">
+                  Live Ontology Traversal Steps ({result.toolTrace.length})
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {result.toolTrace.map((t, idx) => (
+                    <span key={idx} className="rounded-lg border border-[#dfd9cc] bg-white px-2 py-1 text-[#2f3632]">
+                      <span className="font-mono font-semibold text-[#3d6b52]">{idx + 1}. {t.tool}</span> — {t.summary}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <h2 className="mt-3 text-base font-semibold text-[#1f2421]">{result.headline}</h2>
 

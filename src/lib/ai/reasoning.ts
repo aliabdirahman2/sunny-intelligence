@@ -5,6 +5,7 @@
 import { prisma } from "../db";
 import { VITALS, VITAL_FIELD, type Vital, fmtDate, parseJSON, round1, weekOf } from "../domain";
 import { type Viewer, canViewEnergyProfileSection, parseSharingPermissions } from "../permissions";
+import { runGeminiOntologyReasoning, type TraversalToolCall } from "./gemini";
 
 export interface EvidenceItem {
   entityType: string;
@@ -18,6 +19,8 @@ export interface EvidenceItem {
 
 export interface ReasoningResult {
   id: string;
+  mode?: "gemini" | "deterministic";
+  toolTrace?: TraversalToolCall[];
   question: string;
   intent:
     | "TEAM_DECLINE_EXPLANATION"
@@ -295,6 +298,12 @@ export async function runOntologyReasoning(params: {
 
   const result: ReasoningResult = {
     id: `ins-${Date.now()}`,
+    mode: "deterministic",
+    toolTrace: [
+      { tool: "resolve_team", args: { teamId }, summary: `Resolved Team (${team.name})` },
+      { tool: "traverse_snapshots", args: { weeks: `5..${maxWeek}` }, summary: `Compared Week 5 baseline vs. Week ${maxWeek}` },
+      { tool: "traverse_projects_and_events", args: { teamId }, summary: `Traversed ${team.projects.length} projects, ${events.length} events, ${team.observations.length} observations` },
+    ],
     question: params.question,
     intent,
     teamId,
@@ -331,6 +340,22 @@ export async function runOntologyReasoning(params: {
       expectedOutcome: clarifyIv.expectedOutcome,
     },
   };
+
+  // If GEMINI_API_KEY is present, let Gemini run live tool-calling over the ontology!
+  const geminiRes = await runGeminiOntologyReasoning({
+    question: params.question,
+    teamId,
+    viewer: params.viewer,
+    currentDate: params.currentDate,
+  });
+  if (geminiRes) {
+    result.mode = "gemini";
+    result.headline = geminiRes.headline;
+    result.narrative = geminiRes.answerParagraphs;
+    if (geminiRes.toolTrace.length > 0) result.toolTrace = geminiRes.toolTrace;
+    if (geminiRes.nodeIds.length > 0) result.reasoningPathNodeIds = geminiRes.nodeIds;
+    if (geminiRes.relationshipLog.length > 0) result.traversedRelationships = geminiRes.relationshipLog;
+  }
 
   await prisma.insight.create({
     data: {

@@ -10,6 +10,7 @@ import { advanceTimelineToFollowUp, seedDatabase } from "./seed/generate";
 import { getDemoContext } from "./analytics";
 import { canApproveIntervention } from "./permissions";
 import { runOntologyReasoning } from "./ai/reasoning";
+import { runEmployeeCoach } from "./ai/gemini";
 
 export async function switchViewerAction(viewerId: string) {
   await prisma.demoState.update({
@@ -235,5 +236,14 @@ export async function submitEnergyCheckInAction(params: {
     },
   });
   revalidatePath("/", "layout");
+}
+
+export async function askEmployeeCoachAction(question: string) {
+  const ctx = await getDemoContext();
+  return runEmployeeCoach({
+    question,
+    viewer: ctx.viewer,
+    currentDate: ctx.currentDate,
+  });
 }
 

@@ -42,6 +42,7 @@ export const SIDEBAR_GROUPS = [
   {
     title: "ENERGY & PEOPLE",
     items: [
+      { href: "/coach", label: "My AI Coach", icon: Sparkles },
       { href: "/people/e-jordan-ellis", label: "My Battery & Profile", icon: BatteryCharging },
       { href: "/people", label: "Team Directory (72)", icon: UserCheck },
     ],
