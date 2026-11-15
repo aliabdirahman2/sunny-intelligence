@@ -4,7 +4,7 @@
 
 import { prisma } from "../db";
 import { VITALS, VITAL_FIELD, type Vital, fmtDate, parseJSON, round1, weekOf } from "../domain";
-import { type Viewer, canViewCheckIn, canViewEnergyProfileSection, parseSharingPermissions } from "../permissions";
+import { type Viewer, canViewCheckIn } from "../permissions";
 
 export interface TraversalToolCall {
   tool: string;
@@ -46,13 +46,24 @@ const ONTOLOGY_TOOL_DECLARATIONS = [
   {
     name: "get_employee_shared_preferences",
     description:
-      "Look up an employee by name or ID and retrieve their EnergyProfile working, collaboration, and communication preferences (plus any check-ins they explicitly shared), strictly enforcing RBAC sharing permissions for the current viewer. Use this whenever asked how to approach talking to or collaborating with a specific person.",
+      "Look up any employee by name or ID and retrieve their EnergyProfile (working, collaboration, and communication preferences) so teammates and managers know how to approach and collaborate with them, plus any check-in notes they shared with their manager. Use this whenever asked how to approach talking to or collaborating with a specific person.",
     parameters: {
       type: "object",
       properties: {
         nameOrId: { type: "string", description: "Employee full/partial name (e.g. 'Jordan Ellis', 'Marcus') or ID (e.g. 'e-jordan-ellis')" },
       },
       required: ["nameOrId"],
+    },
+  },
+  {
+    name: "list_energy_profiles",
+    description:
+      "List Energy Profiles (working, collaboration, and communication preferences) for all employees on a team (or across the whole organization if teamId is omitted) so anyone can understand how teammates prefer to work and communicate.",
+    parameters: {
+      type: "object",
+      properties: {
+        teamId: { type: "string", description: "Optional Team ID (e.g. 't-outreach') to filter to one team" },
+      },
     },
   },
 ];
@@ -212,13 +223,17 @@ async function executeOntologyTool(
       allEmps.find((e) => e.name.toLowerCase().includes(query.toLowerCase()));
 
     if (!emp || !emp.profiles[0]) {
-      return { result: { error: `Employee matching "${query}" not found` }, nodeIds: [], relationshipLog: [], summary: `Employee "${query}" not found` };
+      return {
+        result: {
+          error: `Employee matching "${query}" not found`,
+          availableSample: allEmps.slice(0, 15).map((e) => e.name),
+        },
+        nodeIds: [],
+        relationshipLog: [],
+        summary: `Employee "${query}" not found`,
+      };
     }
     const prof = emp.profiles[0];
-    const sharing = parseSharingPermissions(prof.sharingPermissions);
-    const work = canViewEnergyProfileSection(ctx.viewer, emp, sharing, "working");
-    const collab = canViewEnergyProfileSection(ctx.viewer, emp, sharing, "collaboration");
-    const comm = canViewEnergyProfileSection(ctx.viewer, emp, sharing, "communication");
     const sharedCheckIns = emp.checkIns
       .filter((ci) => canViewCheckIn(ctx.viewer, ci, emp.managerId))
       .map((ci) => ({ date: fmtDate(ci.timestamp), context: ci.optionalContext, visibility: ci.visibility }));
@@ -228,17 +243,44 @@ async function executeOntologyTool(
         employee: emp.name,
         role: emp.role,
         team: emp.team.name,
-        workingPreferences: work.allowed ? parseJSON<string[]>(prof.workingPreferences, []) : `RESTRICTED: ${work.reason}`,
-        collaborationPreferences: collab.allowed ? parseJSON<string[]>(prof.collaborationPreferences, []) : `RESTRICTED: ${collab.reason}`,
-        communicationPreferences: comm.allowed ? parseJSON<string[]>(prof.communicationPreferences, []) : `RESTRICTED: ${comm.reason}`,
+        workingPreferences: parseJSON<string[]>(prof.workingPreferences, []),
+        collaborationPreferences: parseJSON<string[]>(prof.collaborationPreferences, []),
+        communicationPreferences: parseJSON<string[]>(prof.communicationPreferences, []),
         sharedCheckInNotes: sharedCheckIns,
-        note: "Working preferences are voluntarily shared to support better collaboration — never to evaluate or rank performance.",
+        note: "Energy Profiles are open across the team to support better collaboration — never to evaluate or rank performance.",
       },
-      nodeIds: work.allowed || comm.allowed ? [emp.id, prof.id, emp.teamId] : [emp.id, emp.teamId],
+      nodeIds: [emp.id, prof.id, emp.teamId],
       relationshipLog: [
-        { from: `Employee (${emp.name})`, relationship: "HAS_PROFILE", to: "EnergyProfile (RBAC-checked)", meaning: work.allowed ? work.reason : "Access restricted by employee settings" },
+        { from: `Employee (${emp.name})`, relationship: "HAS_PROFILE", to: "EnergyProfile (Team-Shared)", meaning: "Retrieved working, collaboration, and communication preferences" },
       ],
-      summary: `Checked RBAC permissions for ${emp.name}'s EnergyProfile (${work.allowed ? "shared" : "restricted"})`,
+      summary: `Retrieved ${emp.name}'s EnergyProfile`,
+    };
+  }
+
+  if (name === "list_energy_profiles") {
+    const teamId = args.teamId ? String(args.teamId).trim() : null;
+    const emps = await prisma.employee.findMany({
+      where: teamId ? { teamId } : undefined,
+      include: { team: true, profiles: { where: { isCurrent: true } } },
+      orderBy: { name: "asc" },
+    });
+    return {
+      result: emps
+        .filter((e) => e.profiles[0])
+        .map((e) => ({
+          id: e.id,
+          name: e.name,
+          role: e.role,
+          team: e.team.name,
+          workingPreferences: parseJSON<string[]>(e.profiles[0].workingPreferences, []),
+          collaborationPreferences: parseJSON<string[]>(e.profiles[0].collaborationPreferences, []),
+          communicationPreferences: parseJSON<string[]>(e.profiles[0].communicationPreferences, []),
+        })),
+      nodeIds: emps.map((e) => e.id),
+      relationshipLog: [
+        { from: teamId ? `Team (${teamId})` : "Organization", relationship: "HAS_ENERGY_PROFILES", to: `${emps.length} Employees`, meaning: "Listed team-shared Energy Profiles for collaboration" },
+      ],
+      summary: `Listed ${emps.length} Energy Profiles${teamId ? ` for ${teamId}` : ""}`,
     };
   }
 
@@ -269,7 +311,7 @@ export async function runGeminiOntologyReasoning(params: {
     "1. Always call the ontology tools before answering—never guess or invent scores, dates, or events.",
     "2. Never claim causation from temporal correlation; state uncertainty and alternative explanations clearly.",
     "3. Never diagnose mental health, rank employees by personality, or infer emotion from message volume.",
-    "4. Respect RBAC restrictions returned by tools.",
+    "4. Energy Profiles (working, collaboration, and communication preferences) are shared across the team so everyone knows how to approach and collaborate with each other—always call get_employee_shared_preferences or list_energy_profiles when asked about someone's Energy Profile or how to approach talking to them. Still respect privacy for individual pulse responses and unshared check-in notes.",
     "5. End with a clear, constructive team-level recommendation from the Connect Guide library when relevant.",
   ].join("\n");
 
@@ -361,9 +403,12 @@ export async function runEmployeeCoach(params: {
   mode: "gemini" | "deterministic";
   answer: string[];
   contextUsed: string[];
+  employeeName: string;
+  employeeRole: string;
 }> {
+  const employeeId = params.viewer.systemRole === "EMPLOYEE" ? params.viewer.id : "e-jordan-ellis";
   const emp = await prisma.employee.findUnique({
-    where: { id: params.viewer.id },
+    where: { id: employeeId },
     include: {
       team: true,
       manager: true,
@@ -374,30 +419,67 @@ export async function runEmployeeCoach(params: {
   });
 
   if (!emp) {
-    return { mode: "deterministic", answer: ["Employee context not found."], contextUsed: [] };
+    return {
+      mode: "deterministic",
+      answer: ["Employee context not found."],
+      contextUsed: [],
+      employeeName: params.viewer.name,
+      employeeRole: params.viewer.role,
+    };
   }
+
+  const teammates = await prisma.employee.findMany({
+    where: { teamId: emp.teamId, id: { not: emp.id } },
+    include: { profiles: { where: { isCurrent: true } } },
+    orderBy: { name: "asc" },
+  });
+
+  const teammateProfiles = teammates
+    .filter((t) => t.profiles[0])
+    .map((t) => {
+      const p = t.profiles[0];
+      const w = parseJSON<string[]>(p.workingPreferences, []);
+      const c = parseJSON<string[]>(p.communicationPreferences, []);
+      const col = parseJSON<string[]>(p.collaborationPreferences, []);
+      return {
+        name: t.name,
+        role: t.role,
+        working: w,
+        communication: c,
+        collaboration: col,
+      };
+    });
 
   const prof = emp.profiles[0];
   const workPrefs = prof ? parseJSON<string[]>(prof.workingPreferences, []) : [];
   const commPrefs = prof ? parseJSON<string[]>(prof.communicationPreferences, []) : [];
-  const checkIns = emp.checkIns.filter((ci) => canViewCheckIn(params.viewer, ci, emp.managerId));
+  const checkIns = emp.checkIns;
   const contextUsed = [
     `Your Energy Profile (${workPrefs.length} working, ${commPrefs.length} communication preferences)`,
     `Your last ${checkIns.length} personal Energy Check-Ins (private to you)`,
     `Your ${emp.participations.length} active projects in ${emp.team.name}`,
+    `Team Energy Profiles (${teammateProfiles.length} teammates in ${emp.team.name})`,
   ];
 
   const apiKey = getApiKey();
   if (apiKey) {
     try {
+      const teammateLines = teammateProfiles
+        .map(
+          (t) =>
+            `- ${t.name} (${t.role}): Working=[${t.working.join(", ")}] | Collaboration=[${t.collaboration.join(", ")}] | Communication=[${t.communication.join(", ")}]`,
+        )
+        .join("\n");
+
       const prompt = [
         `You are Sunny's personal Employee AI Coach speaking directly to ${emp.name} (${emp.role} on ${emp.team.name}).`,
-        "You ONLY have access to this employee's own data (never other teammates' private responses).",
-        `Working preferences: ${workPrefs.join("; ")}`,
-        `Communication preferences: ${commPrefs.join("; ")}`,
-        `Recent personal check-ins: ${checkIns.map((c) => `${fmtDate(c.timestamp)}: Energy ${c.reportedEnergy}/5, Support ${c.reportedSupport}/5${c.optionalContext ? ` ("${c.optionalContext}")` : ""}`).join(" | ")}`,
-        `Active projects: ${emp.participations.map((pp) => `${pp.project.name} (${pp.role}, ${pp.project.responsibilities.filter((r) => r.ownership !== "ASSIGNED").length} shared/unowned tasks)`).join("; ")}`,
-        "Give warm, practical, non-diagnostic coaching grounded in their preferences and project context. Keep it concise (2-3 short paragraphs).",
+        "You ONLY have access to this employee's own private check-ins and the team's shared Energy Profiles (never other teammates' private pulse responses or check-ins).",
+        `Your working preferences: ${workPrefs.join("; ")}`,
+        `Your communication preferences: ${commPrefs.join("; ")}`,
+        `Your recent personal check-ins: ${checkIns.map((c) => `${fmtDate(c.timestamp)}: Energy ${c.reportedEnergy}/5, Support ${c.reportedSupport}/5${c.optionalContext ? ` ("${c.optionalContext}")` : ""}`).join(" | ")}`,
+        `Your active projects: ${emp.participations.map((pp) => `${pp.project.name} (${pp.role}, ${pp.project.responsibilities.filter((r) => r.ownership !== "ASSIGNED").length} shared/unowned tasks)`).join("; ")}`,
+        `Team Energy Profiles (open to everyone on ${emp.team.name} so you know how to approach each teammate):\n${teammateLines}`,
+        "Give warm, practical, non-diagnostic coaching grounded in their preferences, teammate Energy Profiles (when asked how to approach someone), and project context. Keep it concise (2-3 short paragraphs).",
       ].join("\n");
 
       const resp = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
@@ -421,6 +503,8 @@ export async function runEmployeeCoach(params: {
             mode: "gemini",
             answer: text.split(/\n{2,}/).map((s: string) => s.trim()).filter(Boolean),
             contextUsed,
+            employeeName: emp.name,
+            employeeRole: emp.role,
           };
         }
       }
@@ -431,6 +515,22 @@ export async function runEmployeeCoach(params: {
 
   // Deterministic Employee Coach fallback (zero-API-key safe)
   const q = params.question.toLowerCase();
+  const matchedTeammate = teammateProfiles.find(
+    (t) => q.includes(t.name.toLowerCase()) || t.name.toLowerCase().split(" ").some((part) => part.length > 2 && q.includes(part)),
+  );
+  if (matchedTeammate && (q.includes("approach") || q.includes("talk") || q.includes("energy") || q.includes("work with"))) {
+    return {
+      mode: "deterministic",
+      answer: [
+        `To approach ${matchedTeammate.name} (${matchedTeammate.role}), keep their Energy Profile in mind: they work best with ${matchedTeammate.working.join(", ") || "clear context"} and collaborate via ${matchedTeammate.collaboration.join(", ") || "structured check-ins"}.`,
+        `For communication, ${matchedTeammate.name} prefers: ${matchedTeammate.communication.join(", ") || "clear, direct updates"}. Matching that style when you reach out will make the conversation smoother for both of you.`,
+      ],
+      contextUsed,
+      employeeName: emp.name,
+      employeeRole: emp.role,
+    };
+  }
+
   const mgrName = emp.manager?.name || "your manager";
   if (q.includes("1:1") || q.includes("talk") || q.includes("ask") || q.includes("manager") || q.includes("dana")) {
     return {
@@ -440,15 +540,19 @@ export async function runEmployeeCoach(params: {
         `Suggested opener: "I want to make sure Neighborhood Food Access Outreach stays on track for Nov 20—can we spend 5 minutes in our 1:1 confirming single owners for translation coordination and weekly partner reporting?"`,
       ],
       contextUsed,
+      employeeName: emp.name,
+      employeeRole: emp.role,
     };
   }
   return {
     mode: "deterministic",
     answer: [
       `Based on your working preferences (${workPrefs.join(", ")}) and your recent check-ins, protecting focus blocks while ${emp.participations[0]?.project.name || "your current project"} is busy can help keep your energy steady.`,
-      `You also have the option to share or unshare your preferences with ${mgrName} anytime from your Battery & Profile page, and your individual pulse answers always remain private.`,
+      `You also have the option to share or unshare your check-in notes with ${mgrName} anytime from your Battery & Profile page, and your individual pulse answers always remain private.`,
     ],
     contextUsed,
+    employeeName: emp.name,
+    employeeRole: emp.role,
   };
 }
 

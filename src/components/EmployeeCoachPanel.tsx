@@ -6,6 +6,7 @@ import { askEmployeeCoachAction } from "@/lib/actions";
 
 const COACH_PROMPTS = [
   "How should I prepare for my 1:1 with Dana to clarify my outreach tasks?",
+  "How should I approach talking to Dana Whitfield based on her Energy Profile?",
   "How can I protect my focus time while Neighborhood Food Access Outreach is busy?",
   "What working preferences am I currently sharing with my manager?",
 ];

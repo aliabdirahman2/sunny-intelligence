@@ -12,8 +12,8 @@ export default async function EmployeeCoachPage() {
 
   return (
     <EmployeeCoachPanel
-      viewerName={ctx.viewer.name}
-      viewerRole={ctx.viewer.role}
+      viewerName={initial.employeeName}
+      viewerRole={initial.employeeRole}
       initialAnswer={initial.answer}
       initialMode={initial.mode}
       contextUsed={initial.contextUsed}

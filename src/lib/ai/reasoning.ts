@@ -268,31 +268,32 @@ export async function runOntologyReasoning(params: {
       `Community Outreach Team is the primary candidate for immediate support via “Clarify Responsibilities.”`,
     ];
   } else if (intent === "PERSONALIZED_COMMUNICATION") {
-    const jordan = await prisma.employee.findUnique({
-      where: { id: "e-jordan-ellis" },
-      include: { profiles: { where: { isCurrent: true } } },
+    const qLower = params.question.toLowerCase();
+    const allEmps = await prisma.employee.findMany({
+      include: { team: true, profiles: { where: { isCurrent: true } } },
     });
-    const prof = jordan?.profiles[0];
-    const sharing = prof ? parseSharingPermissions(prof.sharingPermissions) : { manager: [], team: [] };
-    const canSeeComm =
-      jordan && prof ? canViewEnergyProfileSection(params.viewer, jordan, sharing, "communication") : { allowed: false, reason: "No profile" };
-    if (canSeeComm.allowed && prof) {
+    const matched =
+      allEmps.find((e) => qLower.includes(e.name.toLowerCase())) ||
+      allEmps.find((e) => e.name.toLowerCase().split(" ").some((part) => part.length > 3 && qLower.includes(part))) ||
+      allEmps.find((e) => e.id === "e-jordan-ellis") ||
+      allEmps[0];
+    const prof = matched?.profiles[0];
+    if (matched && prof) {
+      const workPrefs = parseJSON<string[]>(prof.workingPreferences, []);
+      const collabPrefs = parseJSON<string[]>(prof.collaborationPreferences, []);
       const commPrefs = parseJSON<string[]>(prof.communicationPreferences, []);
-      pathSet.add(jordan!.id);
+      pathSet.add(matched.id);
       pathSet.add(prof.id);
-      headline = `Permission-verified guidance for 1:1 with Jordan Ellis (${canSeeComm.reason}).`;
+      headline = `Energy Profile guidance for approaching ${matched.name} (${matched.role}, ${matched.team.name}).`;
       narrative = [
-        `Jordan Ellis has voluntarily shared their Energy Profile communication preferences with their manager: ${commPrefs.join("; ")}.`,
-        `Jordan also voluntarily shared a Week 9 check-in note asking for clarity on who owns translation coordination vs. partner reporting.`,
-        `Based on Jordan's voluntarily shared preference for specific, direct communication and written preparation, consider sending the responsibility matrix ahead of your 1:1 and agreeing concrete owners and next steps.`,
-        `Note: Energy Profiles reflect working preferences — they are never used to evaluate performance or infer emotional state.`,
+        `Working preferences: ${workPrefs.join("; ") || "None listed"}.`,
+        `Collaboration preferences: ${collabPrefs.join("; ") || "None listed"}.`,
+        `Communication preferences: ${commPrefs.join("; ") || "None listed"}.`,
+        `To approach ${matched.name} effectively, align your outreach with these preferences (e.g., ${commPrefs[0] || "clear written context"}). Energy Profiles are shared across the team to support collaboration — never to evaluate performance.`,
       ];
     } else {
-      headline = `Individual communication preferences for Jordan Ellis are restricted for the current viewer role (${params.viewer.systemRole}).`;
-      narrative = [
-        `Access control check: ${canSeeComm.reason}.`,
-        `Switch to Manager (Dana Whitfield) or Self (Jordan Ellis) in the top bar to see how voluntarily shared preferences inform 1:1 preparation.`,
-      ];
+      headline = `No Energy Profile found for the requested employee.`;
+      narrative = [`Please specify an employee name from Northstar Community Services to view their Energy Profile.`];
     }
   }
 
