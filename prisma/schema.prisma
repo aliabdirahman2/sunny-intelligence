@@ -1,0 +1,342 @@
+// Sunny Workplace Intelligence Layer — canonical data model.
+// The relational schema is the persistence layer for the organizational ontology.
+// Ontology object types and typed relationships are declared in src/lib/ontology/schema.ts
+// and resolved against these tables. JSON fields are stored as TEXT (SQLite).
+// ALL DATA IN THIS DATABASE IS SYNTHETIC.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id
+  name      String
+  industry  String
+  createdAt DateTime
+  synthetic Boolean  @default(true)
+
+  teams     Team[]
+  employees Employee[]
+  projects  Project[]
+}
+
+model Team {
+  id             String  @id
+  name           String
+  department     String
+  description    String
+  managerId      String?
+  organizationId String
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  members      Employee[]              @relation("TeamMembers")
+  projects     Project[]
+  snapshots    TeamVitalSnapshot[]
+  executions   InterventionExecution[]
+  observations WorkplaceObservation[]
+}
+
+model Employee {
+  id               String   @id
+  name             String
+  email            String
+  role             String
+  department       String
+  employmentStatus String
+  managerId        String?
+  teamId           String
+  organizationId   String
+  joinedAt         DateTime
+  systemRole       String // EMPLOYEE | MANAGER | HR_ADMIN (access-control role)
+  privacySettings  String // JSON: { shareCheckInsWithManager, shareProfileWithManager, ... }
+  synthetic        Boolean  @default(true)
+
+  organization   Organization           @relation(fields: [organizationId], references: [id])
+  team           Team                   @relation("TeamMembers", fields: [teamId], references: [id])
+  manager        Employee?              @relation("ReportsTo", fields: [managerId], references: [id])
+  reports        Employee[]             @relation("ReportsTo")
+  profiles       EnergyProfile[]
+  checkIns       EnergyCheckIn[]
+  participations ProjectParticipation[]
+  pulseResponses PulseResponse[]
+  observations   WorkplaceObservation[]
+}
+
+model Project {
+  id             String    @id
+  name           String
+  description    String
+  status         String // PLANNED | ACTIVE | COMPLETED
+  startDate      DateTime
+  endDate        DateTime?
+  priority       String // LOW | MEDIUM | HIGH
+  teamId         String
+  organizationId String
+
+  team             Team                   @relation(fields: [teamId], references: [id])
+  organization     Organization           @relation(fields: [organizationId], references: [id])
+  responsibilities Responsibility[]
+  participations   ProjectParticipation[]
+  checkIns         EnergyCheckIn[]
+  observations     WorkplaceObservation[]
+}
+
+model ProjectParticipation {
+  id         String @id
+  employeeId String
+  projectId  String
+  role       String
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id])
+}
+
+model Responsibility {
+  id        String   @id
+  projectId String
+  title     String
+  addedAt   DateTime
+  ownership String // ASSIGNED | SHARED | UNASSIGNED (team-level; no individual tracking)
+  source    String
+
+  project Project @relation(fields: [projectId], references: [id])
+}
+
+model EnergyProfile {
+  id                       String   @id
+  employeeId               String
+  assessmentType           String // "Synthetic Working-Preferences Inventory" (NOT Sunny's Social Battery)
+  assessmentVersion        String
+  assessedAt               DateTime
+  isCurrent                Boolean
+  workingPreferences       String // JSON string[]
+  collaborationPreferences String // JSON string[]
+  communicationPreferences String // JSON string[]
+  sharingPermissions       String // JSON { manager: string[], team: string[] }
+  synthetic                Boolean  @default(true)
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+// Configurable mapping of (synthetic, demonstration-only) assessment items to Team Vitals.
+model AssessmentItem {
+  id                 String  @id
+  vital              String // Supported | Energized | Aligned | Recognized | Safe
+  text               String
+  methodologyVersion String
+  active             Boolean @default(true)
+  synthetic          Boolean @default(true)
+
+  responses PulseResponse[]
+}
+
+// Individual pulse responses. PRIVATE: never exposed to manager or HR views; only aggregated.
+model PulseResponse {
+  id          String   @id
+  employeeId  String
+  teamId      String
+  itemId      String
+  weekIndex   Int
+  periodStart DateTime
+  value       Int? // 1..5 or null when the item was skipped
+  visibility  String   @default("PRIVATE")
+
+  employee Employee       @relation(fields: [employeeId], references: [id])
+  item     AssessmentItem @relation(fields: [itemId], references: [id])
+
+  @@index([teamId, weekIndex])
+}
+
+model EnergyCheckIn {
+  id              String   @id
+  employeeId      String
+  projectId       String?
+  timestamp       DateTime
+  reportedEnergy  Int // 1..5, self-reported
+  reportedSupport Int // 1..5, self-reported
+  optionalContext String?
+  source          String // slack_prompt | teams_prompt | web
+  visibility      String // PRIVATE | SHARED_WITH_MANAGER
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+  project  Project? @relation(fields: [projectId], references: [id])
+}
+
+model TeamVitalSnapshot {
+  id                 String   @id
+  teamId             String
+  weekIndex          Int
+  periodStart        DateTime
+  periodEnd          DateTime
+  supportedScore     Float?
+  energizedScore     Float?
+  alignedScore       Float?
+  recognizedScore    Float?
+  safeScore          Float?
+  vitalRespondents   String // JSON { Supported: n, ... } valid respondents per vital
+  respondentCount    Int
+  teamSize           Int
+  responseRate       Float
+  suppressed         Boolean // true when respondentCount < privacy threshold
+  confidenceLevel    String // LOW | MODERATE | HIGH | SUPPRESSED
+  confidenceScore    Float
+  methodologyVersion String
+  isFollowUp         Boolean  @default(false)
+
+  team Team @relation(fields: [teamId], references: [id])
+
+  @@unique([teamId, weekIndex])
+}
+
+model WorkplaceObservation {
+  id              String    @id
+  employeeId      String?
+  teamId          String?
+  projectId       String?
+  source          String // slack | teams | project_mgmt | hris | pulse_aggregate
+  connectorId     String
+  observationType String
+  observedAt      DateTime
+  weekIndex       Int
+  summary         String
+  metadata        String // JSON
+  permissionScope String // TEAM_AGGREGATE | PROJECT | ORG_AGGREGATE | SELF_REPORTED_SHARED
+  purpose         String
+  retentionPolicy String
+  confidence      Float
+  correctedAt     DateTime?
+  deletedAt       DateTime?
+  synthetic       Boolean   @default(true)
+
+  employee Employee? @relation(fields: [employeeId], references: [id])
+  team     Team?     @relation(fields: [teamId], references: [id])
+  project  Project?  @relation(fields: [projectId], references: [id])
+}
+
+model OrganizationalEvent {
+  id                String   @id
+  eventType         String
+  title             String
+  description       String
+  occurredAt        DateTime
+  weekIndex         Int
+  source            String
+  connectorId       String?
+  relatedEntityType String
+  relatedEntityId   String
+  teamId            String?
+  projectId         String?
+  metadata          String // JSON
+  synthetic         Boolean  @default(true)
+}
+
+model Intervention {
+  id                  String @id
+  slug                String @unique
+  name                String
+  description         String
+  targetVital         String
+  secondaryVitals     String // JSON string[]
+  recommendedAudience String
+  estimatedDuration   String
+  format              String // ACTIVITY (5–10 min) | WORKSHOP (30–45 min) | GUIDE
+  instructions        String // JSON string[]
+  expectedOutcome     String
+  followUpMeasurement String
+  triggerSignals      String // JSON string[] observation types this addresses
+  interventionVersion String
+
+  executions InterventionExecution[]
+}
+
+model InterventionExecution {
+  id               String    @id
+  interventionId   String
+  teamId           String
+  managerId        String
+  insightId        String?
+  status           String // RECOMMENDED | APPROVED | SCHEDULED | COMPLETED | FOLLOW_UP_SCHEDULED | MEASURED
+  approvedAt       DateTime?
+  approvedById     String?
+  scheduledFor     DateTime?
+  completedAt      DateTime?
+  followUpDate     DateTime?
+  notes            String?
+  announcementText String?
+  createdAt        DateTime
+
+  intervention Intervention          @relation(fields: [interventionId], references: [id])
+  team         Team                  @relation(fields: [teamId], references: [id])
+  outcome      InterventionOutcome?
+  actions      ActionLog[]
+}
+
+model ActionLog {
+  id                String   @id
+  executionId       String
+  action            String // RECOMMENDED | APPROVED | ANNOUNCEMENT_GENERATED | SCHEDULED | COMPLETED | FOLLOW_UP_SCHEDULED | OUTCOME_MEASURED
+  actorId           String
+  actorRole         String
+  approvalState     String
+  targetEntityType  String
+  targetEntityId    String
+  timestamp         DateTime
+  details           String
+
+  execution InterventionExecution @relation(fields: [executionId], references: [id])
+}
+
+model InterventionOutcome {
+  id                      String   @id
+  interventionExecutionId String   @unique
+  measuredAt              DateTime
+  beforeSnapshotId        String
+  afterSnapshotId         String
+  scoreChanges            String // JSON { Supported: { before, after, delta }, ... }
+  employeeFeedback        String // JSON aggregated, anonymous summary
+  outcomeNotes            String
+  confidence              String
+
+  execution InterventionExecution @relation(fields: [interventionExecutionId], references: [id])
+}
+
+// Stored AI insights — one stage of the feedback loop (what did the AI identify?).
+model Insight {
+  id                       String   @id
+  question                 String
+  intent                   String
+  teamId                   String?
+  summary                  String
+  payload                  String // JSON full structured reasoning result
+  reasoningPath            String // JSON ontology node ids traversed
+  confidence               String
+  recommendedInterventionId String?
+  viewerId                 String
+  createdAt                DateTime
+}
+
+model DataSource {
+  id             String   @id
+  kind           String // slack | teams | project_mgmt | hris | pulse
+  name           String
+  status         String
+  lastSyncAt     DateTime
+  recordsIngested Int
+  scopes         String // JSON string[]
+  excluded       String // JSON string[] — data explicitly NOT ingested
+  synthetic      Boolean  @default(true)
+}
+
+model DemoState {
+  id          Int      @id @default(1)
+  currentDate DateTime
+  phase       String // DISCOVERY | FOLLOW_UP
+  viewerId    String
+  updatedAt   DateTime
+}
+
